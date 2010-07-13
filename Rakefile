@@ -1,15 +1,23 @@
-RAILS_ROOT = "#{File.dirname(__FILE__)}"
+begin
+  require File.expand_path('../.bundle/environment', __FILE__)
+rescue LoadError
+  begin
+    require 'rubygems'
+    require 'bundler'
+    Bundler.setup
+  rescue
+    require File.expand_path('../config/environment', __FILE__)
+  end
+end
 
-require 'rubygems'
-require 'spec/rake/spectask'
-
-require 'config/environment'
-
-require 'rake'
-require 'rake/testtask'
-require 'rake/rdoctask'
-
-require 'tasks/rails'
+begin
+  require 'rake/testtask'
+  require 'rake/rdoctask'
+  require 'spec/rake/spectask'
+rescue MissingSourceFile
+  STDERR.puts "Error, could not load rake/rspec tasks! (#{$!})\n\nDid you run `bundle install`?\n\n"
+  exit 1
+end
 
 Spec::Rake::SpecTask.new do |t|
   t.spec_files = FileList['spec/**/*_spec.rb']

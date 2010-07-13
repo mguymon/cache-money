@@ -1,8 +1,5 @@
-$LOAD_PATH.unshift(File.dirname(__FILE__))
-
-require 'rubygems'
-require 'activesupport'
-require 'activerecord'
+require 'active_support'
+require 'active_record'
 
 require 'cash/lock'
 require 'cash/transactional'
@@ -14,7 +11,7 @@ require 'cash/config'
 require 'cash/accessor'
 
 require 'cash/request'
-require 'cash/mock'
+require 'cash/fake'
 require 'cash/local'
 
 require 'cash/query/abstract'
@@ -23,12 +20,25 @@ require 'cash/query/primary_key'
 require 'cash/query/calculation'
 
 require 'cash/util/array'
+require 'cash/util/marshal'
 
 class ActiveRecord::Base
   def self.is_cached(options = {})
-    options.assert_valid_keys(:ttl, :repository, :version)
-    include Cash
-    Config.create(self, options)
+    if options == false
+      include NoCash
+    else
+      options.assert_valid_keys(:ttl, :repository, :version)
+      include Cash unless ancestors.include?(Cash)
+      Cash::Config.create(self, options)
+    end
+  end
+
+  def <=>(other)
+    if self.id == other.id then 
+      0
+    else
+      self.id < other.id ? -1 : 1
+    end
   end
 end
 
@@ -48,7 +58,27 @@ module Cash
     end
 
     def transaction_with_cache_transaction(&block)
-      repository.transaction { transaction_without_cache_transaction(&block) }
+      if cache_config
+        repository.transaction { transaction_without_cache_transaction(&block) }
+      else
+        transaction_without_cache_transaction(&block)
+      end
+    end
+
+    def cacheable?(*args)
+      true
+    end
+  end
+end
+module NoCash
+  def self.included(active_record_class)
+    active_record_class.class_eval do
+      extend ClassMethods
+    end
+  end
+  module ClassMethods
+    def cachable?(*args)
+      false
     end
   end
 end

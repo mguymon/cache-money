@@ -2,11 +2,12 @@ module Cash
   class Index
     attr_reader :attributes, :options
     delegate :each, :hash, :to => :@attributes
-    delegate :get, :set, :expire, :find_every_without_cache, :calculate_without_cache, :calculate_with_cache, :incr, :decr, :primary_key, :to => :@active_record
+    delegate :get, :set, :expire, :find_every_without_cache, :calculate_without_cache, :calculate_with_cache, :incr, :decr, :primary_key, :logger, :to => :@active_record
 
     DEFAULT_OPTIONS = { :ttl => 1.day }
 
     def initialize(config, active_record, attributes, options = {})
+      DEFAULT_OPTIONS[:ttl] = config.ttl || DEFAULT_OPTIONS[:ttl]
       @config, @active_record, @attributes, @options = config, active_record, Array(attributes).collect(&:to_s).sort, DEFAULT_OPTIONS.merge(options)
     end
 
@@ -22,15 +23,13 @@ module Cash
 
     module Commands
       def add(object)
-        clone = object.shallow_clone
         _, new_attribute_value_pairs = old_and_new_attribute_value_pairs(object)
-        add_to_index_with_minimal_network_operations(new_attribute_value_pairs, clone)
+        add_to_index_with_minimal_network_operations(new_attribute_value_pairs, object)
       end
 
       def update(object)
-        clone = object.shallow_clone
         old_attribute_value_pairs, new_attribute_value_pairs = old_and_new_attribute_value_pairs(object)
-        update_index_with_minimal_network_operations(old_attribute_value_pairs, new_attribute_value_pairs, clone)
+        update_index_with_minimal_network_operations(old_attribute_value_pairs, new_attribute_value_pairs, object)
       end
 
       def remove(object)
@@ -66,16 +65,20 @@ module Cash
       def window
         limit && limit + buffer
       end
+      
+      def order_column
+        options[:order_column] || 'id'
+      end
     end
     include Attributes
 
     def serialize_object(object)
-      primary_key? ? object : object.id
+      primary_key? ? object.shallow_clone : object.id
     end
 
     def matches?(query)
       query.calculation? ||
-      (query.order == ['id', order] &&
+      (query.order == [order_column, order] &&
       (!limit || (query.limit && query.limit + query.offset <= limit)))
     end
 
@@ -109,7 +112,7 @@ module Cash
     end
 
     def add_object_to_primary_key_cache(attribute_value_pairs, object)
-      set(cache_key(attribute_value_pairs), [object], :ttl => ttl)
+      set(cache_key(attribute_value_pairs), [serialize_object(object)], :ttl => ttl)
     end
 
     def cache_key(attribute_value_pairs)
@@ -140,8 +143,8 @@ module Cash
       cache_hit = true
       cache_value = get(key) do
         cache_hit = false
-        conditions = attribute_value_pairs.to_hash
-        find_every_without_cache(:select => primary_key, :conditions => conditions, :limit => window).collect do |object|
+        conditions = attribute_value_pairs.to_hash_without_nils
+        find_every_without_cache(:conditions => conditions, :limit => window).collect do |object|
           serialize_object(object)
         end
       end
@@ -153,7 +156,7 @@ module Cash
     end
 
     def calculate_at_index(operation, attribute_value_pairs)
-      conditions = attribute_value_pairs.to_hash
+      conditions = attribute_value_pairs.to_hash_without_nils
       calculate_without_cache(operation, :all, :conditions => conditions)
     end
 
@@ -195,7 +198,7 @@ module Cash
     end
 
     def resize_if_necessary(attribute_value_pairs, objects)
-      conditions = attribute_value_pairs.to_hash
+      conditions = attribute_value_pairs.to_hash_without_nils
       key = cache_key(attribute_value_pairs)
       count = decr("#{key}/count") { calculate_at_index(:count, attribute_value_pairs) }
 

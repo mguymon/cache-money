@@ -36,10 +36,7 @@ module Cash
       end
 
       def shallow_clone
-        clone = self.class.new
-        clone.instance_variable_set("@attributes", instance_variable_get(:@attributes))
-        clone.instance_variable_set("@new_record", new_record?)
-        clone
+        self.class.send(:instantiate, instance_variable_get(:@attributes))
       end
 
       private
@@ -53,19 +50,19 @@ module Cash
 
     module ClassMethods
       def add_to_caches(object)
-        indices.each { |index| index.add(object) }
+        indices.each { |index| index.add(object) } if cache_config
       end
 
       def update_caches(object)
-        indices.each { |index| index.update(object) }
+        indices.each { |index| index.update(object) } if cache_config
       end
 
       def remove_from_caches(object)
-        indices.each { |index| index.remove(object) }
+        indices.each { |index| index.remove(object) } if cache_config
       end
 
       def expire_caches(object)
-        indices.each { |index| index.delete(object) }
+        indices.each { |index| index.delete(object) } if cache_config
       end
     end
   end
